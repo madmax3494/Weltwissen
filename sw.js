@@ -1,6 +1,6 @@
 // Weltwissen, Webapp-Fassung: legt das Spiel einmal auf dem Gerät ab, damit es ohne Netz startet.
 // Abgelegt werden nur die Programmdateien unten. Der Spielstand liegt getrennt davon im Speicher des Browsers.
-const STAND = '8492b22369e77e8a';
+const STAND = '2728c2580eede6d3';
 const ABLAGE = 'weltwissen-' + STAND;
 const DATEIEN = ['./', 'manifest.webmanifest', 'symbol-180.png', 'symbol-512.png'];
 self.addEventListener('install', (e) => {
