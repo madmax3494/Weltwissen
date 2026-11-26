@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Weltwissen">
 <meta name="theme-color" content="#fbe6d4">
 <meta name="format-detection" content="telephone=no">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob: 'self'; connect-src 'none'; worker-src 'self'; manifest-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob: 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'">
 <title>Weltwissen</title>
 <style>
 /* Weltwissen – Design „Wirtschaftsblatt“: lachsrosa Papier, dunkles Blau, Zeitungsschrift */
@@ -144,10 +144,12 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
 // Weltwissen – Spielregeln ohne Oberfläche. Läuft im Browser (window.WW) und in Node (Tests).
 (function (root) {
   'use strict';
-  const VERSION = '1.1';
+  const VERSION = '1.2';
   const KATS = [['ge', 'Geschichte'], ['ek', 'Erdkunde'], ['nw', 'Naturwissenschaft'], ['te', 'Technik'], ['sp', 'Sport'], ['mu', 'Musik'],
     ['fi', 'Film & Fernsehen'], ['ku', 'Kunst & Literatur'], ['sr', 'Sprache'], ['es', 'Essen & Trinken'], ['ti', 'Tiere & Natur'], ['de', 'Deutschland']];
   const KATNAME = {}; KATS.forEach(k => { KATNAME[k[0]] = k[1]; });
+  // Aktuelles: eigenes Gebiet außerhalb der zwölf, kommt als Lieferung (aktuelles.json) und nur in der Spielart „Aktuelles“ vor
+  const AK = 'ak'; KATNAME[AK] = 'Aktuelles';
   // Gipfelsturm: 15 Etappen in Höhenmetern, Lager nach Etappe 5 und 10
   const HOEHEN = [300, 600, 1000, 1500, 2000, 2600, 3200, 3900, 4600, 5300, 6000, 6700, 7400, 8100, 8848];
   const LAGER = [5, 10];
@@ -161,7 +163,7 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
     { a: mix(3, 6, 1), za: 7, p: mix(4, 6, 2), zp: 9 }, { a: mix(2, 5, 3), za: 7, p: mix(2, 6, 4), zp: 9 }, { a: mix(0, 6, 4), za: 7, p: mix(0, 7, 5), zp: 9 },
     { a: mix(0, 4, 6), za: 8, p: mix(0, 5, 7), zp: 10 }];
 
-  let F = [], S = null;
+  let F = [], BASIS = [], S = null;
 
   function leer() {
     return { v: 1, gesehen: {}, falsch: [], kat: {}, tage: {}, tq: {}, best: { runde: 0, gipfel: 0, serie: 0, training: 0 },
@@ -178,8 +180,25 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
   function katVon(q) { return q.id.slice(0, 2); }
 
   function init(fragen, stand) {
-    F = fragen.slice().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    BASIS = fragen.filter(q => katVon(q) !== AK).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    F = BASIS.slice();
     laden(stand || null);
+  }
+  // Lieferung mit aktuellen Fragen übernehmen (ersetzt die vorige). Unbrauchbare Einträge fallen weg. Gibt die Zahl der Fragen zurück.
+  function aktuellesSetzen(liste) {
+    const gut = [], ids = {};
+    (Array.isArray(liste) ? liste : []).forEach(q => {
+      if (!q || typeof q.id !== 'string' || !/^ak\d{6}-\d{2}$/.test(q.id) || ids[q.id] || [1, 2, 3].indexOf(q.s) < 0 || typeof q.f !== 'string' || !q.f.trim() || typeof q.i !== 'string'
+        || !Array.isArray(q.a) || q.a.length !== 4 || !q.a.every(x => typeof x === 'string' && x.trim()) || !/^\d{4}-\d{2}-\d{2}$/.test(q.d || '')) return;
+      ids[q.id] = 1; gut.push({ id: q.id, s: q.s, f: q.f, a: q.a.slice(), i: q.i, d: q.d });
+    });
+    F = BASIS.concat(gut); return gut.length;
+  }
+  // Zehn aktuelle Fragen: zuerst die am seltensten gesehenen, darunter die neuesten Lieferungen
+  function ziehAktuelle(r, n) {
+    const alle = mischen(F.filter(q => katVon(q) === AK), r);
+    alle.sort((a, b) => ((S.gesehen[a.id] || 0) - (S.gesehen[b.id] || 0)) || (a.d < b.d ? 1 : a.d > b.d ? -1 : 0));
+    return mischen(alle.slice(0, n), r);
   }
   function laden(stand) {
     S = leer();
@@ -198,7 +217,7 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
   function zieh(r, stufe, kat, benutzt, ohneStand) {
     let beste = [], min = Infinity;
     for (const q of F) {
-      if (benutzt[q.id] || (stufe && q.s !== stufe) || (kat && katVon(q) !== kat)) continue;
+      if (benutzt[q.id] || (stufe && q.s !== stufe) || (kat ? katVon(q) !== kat : katVon(q) === AK)) continue;
       const n = ohneStand ? 0 : (S.gesehen[q.id] || 0);
       if (n < min) { min = n; beste = [q]; } else if (n === min) beste.push(q);
     }
@@ -207,7 +226,7 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
   }
   function eintrag(q, r) { return { q: q, perm: mischen([0, 1, 2, 3], r) }; }
 
-  // modus: 'runde' | 'gipfel' | 'tag' | 'training'; opt: { datum, kat, stufe, seed }
+  // modus: 'runde' | 'gipfel' | 'tag' | 'training' | 'karriere' | 'aktuell'; opt: { datum, kat, stufe, seed, auftrag }
   function neueRunde(modus, opt) {
     opt = opt || {};
     const tag = modus === 'tag';
@@ -220,20 +239,21 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
     const kats = mischen(KATS.map(k => k[0]), r);
     const stufen = kar ? (pruef ? KSTUFEN[K.rang].p : KSTUFEN[K.rang].a) : modus === 'gipfel' ? [1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3] : modus === 'training' && opt.stufe ? Array(10).fill(opt.stufe) : STUFEN10;
     // In der Schnellen Runde kommen bis zu zwei früher falsch beantwortete Fragen wieder
-    const alt = modus === 'runde' ? mischen(S.falsch.filter(id => F.some(q => q.id === id)), r).slice(0, 2).map(id => F.find(q => q.id === id)) : [];
-    stufen.forEach((st, i) => {
+    const alt = modus === 'runde' ? mischen(S.falsch.filter(id => BASIS.some(q => q.id === id)), r).slice(0, 2).map(id => F.find(q => q.id === id)) : [];
+    if (modus === 'aktuell') ziehAktuelle(r, 10).forEach(q => { benutzt[q.id] = 1; liste.push(eintrag(q, r)); });
+    else stufen.forEach((st, i) => {
       let q = null;
       const a = alt.findIndex(x => x && x.s === st && !benutzt[x.id]);
       if (a >= 0) { q = alt[a]; alt[a] = null; benutzt[q.id] = 1; }
       if (!q) q = zieh(r, st, festKat || kats[i % kats.length], benutzt, tag);
       if (q) liste.push(eintrag(q, r));
     });
-    return { modus: modus, liste: liste, i: 0, punkte: 0, richtig: 0, ende: false, datum: opt.datum || '', kat: opt.kat || festKat, stufe: opt.stufe || 0, auftrag: kar ? opt.auftrag : null, ziel: kar ? (pruef ? KSTUFEN[K.rang].zp : KSTUFEN[K.rang].za) : 0, bestanden: false, befoerdert: false,
+    return { modus: modus, liste: liste, i: 0, punkte: 0, richtig: 0, ende: false, datum: opt.datum || '', kat: modus === 'aktuell' ? AK : opt.kat || festKat, stufe: opt.stufe || 0, auftrag: kar ? opt.auftrag : null, ziel: kar ? (pruef ? KSTUFEN[K.rang].zp : KSTUFEN[K.rang].za) : 0, bestanden: false, befoerdert: false,
       joker: modus === 'gipfel' ? { halb: true, zeit: true, tausch: true } : {}, weg: [], extra: 0, benutzt: benutzt, r: r, verlauf: [], rekord: false, gipfel: false, abgestiegen: false };
   }
   function aktuelle(R) {
     const e = R.liste[R.i]; if (!e || R.ende) return null;
-    return { nr: R.i + 1, von: R.liste.length, id: e.q.id, frage: e.q.f, antworten: e.perm.map(p => e.q.a[p]), kat: KATNAME[katVon(e.q)], stufe: e.q.s,
+    return { nr: R.i + 1, von: R.liste.length, id: e.q.id, frage: e.q.f, antworten: e.perm.map(p => e.q.a[p]), kat: KATNAME[katVon(e.q)], stufe: e.q.s, vom: e.q.d || '',
       zeit: S.einst.zeit ? ZEIT + R.extra : 0, weg: R.weg.slice(), hoehe: R.modus === 'gipfel' ? HOEHEN[R.i] : 0 };
   }
   function sicher(i) { return i >= LAGER[1] ? HOEHEN[LAGER[1] - 1] : i >= LAGER[0] ? HOEHEN[LAGER[0] - 1] : 0; }
@@ -302,27 +322,32 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
   function statistik(datum) {
     let r = 0, f = 0;
     const kats = KATS.map(k => { const x = S.kat[k[0]] || { r: 0, f: 0 }; r += x.r; f += x.f; const n = x.r + x.f; return { k: k[0], name: k[1], r: x.r, f: x.f, n: n, quote: n ? Math.round(100 * x.r / n) : null }; });
+    const ax = S.kat[AK] || { r: 0, f: 0 }, akListe = F.filter(q => katVon(q) === AK); r += ax.r; f += ax.f;
+    const aktuell = { n: akListe.length, neu: akListe.filter(q => !S.gesehen[q.id]).length, stand: akListe.reduce((m, q) => (q.d > m ? q.d : m), ''),
+      r: ax.r, f: ax.f, quote: ax.r + ax.f ? Math.round(100 * ax.r / (ax.r + ax.f)) : null };
     const gewertet = kats.filter(k => k.n >= 5).sort((a, b) => b.quote - a.quote);
     const verlauf = []; for (let i = 29; i >= 0; i--) { const d = tagPlus(datum, -i), x = S.tage[d]; verlauf.push({ d: d, r: x ? x.r : 0, f: x ? x.f : 0 }); }
     return { gesamt: { r: r, f: f, n: r + f, quote: r + f ? Math.round(100 * r / (r + f)) : null }, kats: kats,
       staerken: gewertet.slice(0, 3), schwaechen: gewertet.length > 3 ? gewertet.slice(-3).reverse() : [],
-      verlauf: verlauf, best: S.best, serie: serie(datum), spiele: S.spiele,
+      aktuell: aktuell, verlauf: verlauf, best: S.best, serie: serie(datum), spiele: S.spiele,
       zeit: { schnitt: S.zeit.n ? Math.round(10 * S.zeit.summe / S.zeit.n) / 10 : null, min: S.zeit.min === null ? null : Math.round(10 * S.zeit.min) / 10 },
       gesehen: Object.keys(S.gesehen).filter(id => F.some(q => q.id === id)).length, pool: F.length, heute: S.tq[datum] || null };
   }
   function poolZahl(kat, stufe) { return F.filter(q => (!kat || katVon(q) === kat) && (!stufe || q.s === stufe)).length; }
 
-  const WW = { VERSION, KATS, HOEHEN, LAGER, ZEIT, init, laden, zustand, exportieren, neueRunde, aktuelle, antwort, aufhoeren, joker, serie, statistik, sicher, poolZahl, tagPlus, karriere, RAENGE };
+  const WW = { VERSION, KATS, HOEHEN, LAGER, ZEIT, init, laden, zustand, exportieren, neueRunde, aktuelle, antwort, aufhoeren, joker, serie, statistik, sicher, poolZahl, tagPlus, karriere, RAENGE, aktuellesSetzen };
   if (typeof module !== 'undefined' && module.exports) module.exports = WW; else root.WW = WW;
 })(typeof window !== 'undefined' ? window : this);
 
 </script>
 <script>
-// Weltwissen – Oberfläche. Kein Netzwerkaufruf; der Spielstand liegt nur im Speicher des Browsers.
+// Weltwissen – Oberfläche. Der Spielstand liegt nur im Speicher des Browsers.
+// Einziger Netzaufruf: die Online-Fassung holt beim Start die Datei aktuelles.json von der eigenen Seite (nur lesen, es wird nichts gesendet).
 (function () {
   'use strict';
-  const KEY = 'weltwissen-v1';
-  const MODUS = { runde: 'Schnelle Runde', gipfel: 'Gipfelsturm', tag: 'Tagesquiz', training: 'Themen-Training', karriere: 'Karriere' };
+  const KEY = 'weltwissen-v1', AKKEY = 'weltwissen-aktuelles';
+  const ONLINE = location.protocol === 'http:' || location.protocol === 'https:';
+  const MODUS = { runde: 'Schnelle Runde', gipfel: 'Gipfelsturm', tag: 'Tagesquiz', training: 'Themen-Training', karriere: 'Karriere', aktuell: 'Aktuelles' };
   const STUFE = ['gemischt', 'leicht', 'mittel', 'schwer'];
   const box = document.getElementById('seite'), leiste = document.getElementById('leiste');
   const zahl = n => Number(n).toLocaleString('de-DE');
@@ -334,6 +359,18 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
 
   let stand = null; try { stand = JSON.parse(localStorage.getItem(KEY)); } catch (e) { stand = null; }
   WW.init(FRAGEN, stand);
+  // Aktuelles: zuerst die zuletzt geholte Lieferung aus dem Gerät, dann (nur online) die neueste von der eigenen Seite
+  try { const ak = JSON.parse(localStorage.getItem(AKKEY)); if (ak && ak.fragen) WW.aktuellesSetzen(ak.fragen); } catch (e) { /* ohne Lieferung geht es auch */ }
+  function holeAktuelles() {
+    if (!ONLINE || !window.fetch) return;
+    fetch('aktuelles.json', { cache: 'no-cache' }).then(function (a) { return a.ok ? a.json() : null; }).then(function (ak) {
+      if (!ak || !Array.isArray(ak.fragen) || R) return;
+      WW.aktuellesSetzen(ak.fragen);
+      try { localStorage.setItem(AKKEY, JSON.stringify(ak)); } catch (e) { /* dann eben nur für diese Sitzung */ }
+      if (seite === 'start' || seite === 'statistik') zeig();
+    }).catch(function () { /* kein Netz: die letzte Lieferung bleibt */ });
+  }
+  function kurz(datum) { return datum ? datum.slice(8, 10) + '.' + datum.slice(5, 7) + '.' : ''; }
 
   let seite = 'start', R = null, letzte = null, offen = false, uhr = null, t0 = 0, limit = 0, trainStufe = 0;
 
@@ -385,6 +422,9 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
     liste.appendChild(reihe('Gipfelsturm', st.best.gipfel ? 'Bestwert ' + zahl(st.best.gipfel) + ' m' : '15 Etappen bis auf 8.848 m', function () { start('gipfel'); }));
     const K = WW.karriere(), erl = K.auftraege.filter(function (a) { return a.erledigt; }).length;
     liste.appendChild(reihe('Karriere', K.fertig ? 'Chefredakteur' : K.name + ' · ' + (K.pruefung.offen ? 'Prüfung steht an' : erl + ' von 3 Aufträgen'), function () { geh('karriere'); }));
+    const ak = st.aktuell;
+    liste.appendChild(reihe('Aktuelles', ak.n ? (ak.neu ? ak.neu + (ak.neu === 1 ? ' neue Frage' : ' neue Fragen') : 'alle gespielt') + ' · Stand ' + kurz(ak.stand) : ONLINE ? 'kommt, sobald Netz da ist' : 'nur in der Online-Fassung', ak.n ? function () { start('aktuell'); } : null));
+    if (!ak.n) liste.lastChild.lastChild.textContent = '';
     liste.appendChild(reihe('Themen-Training', 'Gebiet und Stufe wählen', function () { geh('training'); }));
     box.appendChild(liste);
     box.appendChild(el('div', 'fuss', zahl(st.gesehen) + ' von ' + zahl(st.pool) + ' Fragen entdeckt'));
@@ -448,7 +488,7 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
     box.appendChild(kz);
     let balken = null, spur = null;
     if (A.zeit) { spur = el('div', 'zeitleiste'); balken = el('div'); spur.appendChild(balken); box.appendChild(spur); }
-    box.appendChild(el('div', 'rubrik', A.kat + ' · ' + STUFE[A.stufe]));
+    box.appendChild(el('div', 'rubrik', A.kat + ' · ' + (A.vom ? 'Ausgabe vom ' + kurz(A.vom) : STUFE[A.stufe])));
     box.appendChild(el('h2', 'frage', A.frage));
     const antw = el('div', 'antworten'), knoepfe = [];
     A.antworten.forEach(function (text, i) {
@@ -584,6 +624,7 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
       const r = el('div', 'balkenzeile'), spur = el('div', 'spur'), b = el('div'); b.style.width = (k.quote || 0) + '%'; spur.appendChild(b);
       dazu(r, el('span', '', k.name), spur, el('span', 'w', k.quote === null ? '–' : k.quote + ' %')); box.appendChild(r);
     });
+    if (st.aktuell.r + st.aktuell.f) { const r = el('div', 'balkenzeile'), spur = el('div', 'spur'), b = el('div'); b.style.width = st.aktuell.quote + '%'; spur.appendChild(b); dazu(r, el('span', '', 'Aktuelles'), spur, el('span', 'w', st.aktuell.quote + ' %')); box.appendChild(r); }
     if (st.staerken.length) box.appendChild(el('p', 'klein', 'Stärken: ' + st.staerken.map(function (k) { return k.name; }).join(', ') + (st.schwaechen.length ? '. Schwächen: ' + st.schwaechen.map(function (k) { return k.name; }).join(', ') : '') + '.'));
     else box.appendChild(el('p', 'klein', 'Stärken und Schwächen erscheinen ab 5 Antworten je Gebiet.'));
 
@@ -608,7 +649,7 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
 
   // ---------- Mehr ----------
   function zeigMehr() {
-    const S = WW.zustand();
+    const S = WW.zustand(), st = WW.statistik(heute());
     kopf(true);
     box.appendChild(el('div', 'rubrik', 'Einstellungen'));
     const l = el('div', 'liste'); l.style.marginTop = '0';
@@ -622,10 +663,11 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
     [['Schnelle Runde', '10 Fragen aus allen Gebieten, erst leicht, am Ende schwer.'], ['Tagesquiz', 'Jeden Tag dieselben 10 Fragen, ein Versuch. Wer täglich spielt, baut eine Serie auf.'],
       ['Gipfelsturm', '15 Etappen bis auf 8.848 m. Eine falsche Antwort wirft dich auf das letzte Lager zurück (2.000 m und 5.300 m). Drei Joker, und du kannst jederzeit absteigen.'],
       ['Karriere', 'Vom Volontär zum Chefredakteur in sieben Stufen. Je Stufe drei Aufträge aus verschiedenen Ressorts und eine Beförderungsprüfung; die Fragen werden mit jedem Rang schwerer.'],
+      ['Aktuelles', '10 Fragen zu Ereignissen der letzten Wochen. Jede Woche kommt eine neue Lieferung; das Spiel holt sie von selbst, sobald es Netz hat. Ältere Fragen bleiben als Rückblick.'],
       ['Themen-Training', 'Ein Gebiet und eine Stufe wählen, 10 Fragen.']].forEach(function (x) { const p = el('p'); dazu(p, el('b', '', x[0] + '. '), document.createTextNode(x[1])); box.appendChild(p); });
 
     box.appendChild(el('div', 'rubrik', 'Über diese Ausgabe'));
-    box.appendChild(el('p', '', 'Weltwissen ' + WW.VERSION + ' mit ' + zahl(FRAGEN.length) + ' Fragen aus ' + WW.KATS.length + ' Gebieten. Das Spiel läuft ohne Internet und sendet nichts. Dein Spielstand liegt nur auf diesem Gerät.'));
+    box.appendChild(el('p', '', 'Weltwissen ' + WW.VERSION + ' mit ' + zahl(FRAGEN.length) + ' Fragen aus ' + WW.KATS.length + ' Gebieten' + (st.aktuell.n ? ', dazu ' + zahl(st.aktuell.n) + ' aktuelle Fragen (Stand ' + kurz(st.aktuell.stand) + ')' : '') + '. Das Spiel läuft ohne Internet und sendet nichts. Mit Netz holt es nur die Datei mit den aktuellen Fragen von der eigenen Seite. Dein Spielstand liegt nur auf diesem Gerät.'));
     box.appendChild(knopf('zweit', 'Spielstand löschen', function () {
       if (!window.confirm('Wirklich alles löschen? Statistik, Bestwerte und Serie sind dann weg.')) return;
       WW.laden(null); sichern(); geh('start', true);
@@ -634,11 +676,13 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
 
   try { history.replaceState({ s: 'start' }, ''); } catch (e) { /* egal */ }
   zeig();
+  holeAktuelles();
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) holeAktuelles(); });
 })();
 
 </script>
 <script>
-// Webapp-Fassung: Spiel einmal auf dem Gerät ablegen, damit es ohne Netz startet. Kein Netzwerkaufruf.
+// Webapp-Fassung: Spiel einmal auf dem Gerät ablegen, damit es ohne Netz startet.
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(function (e) { console.warn('Start ohne Netz nicht möglich:', e); });
 </script>
 </body>

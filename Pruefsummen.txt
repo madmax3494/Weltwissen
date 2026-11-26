@@ -1,16 +1,17 @@
-Webapp-Fassung, gebaut aus Weltwissen.html mit SHA-256 1e88fdfdb7a884ed17d8b37ecad3033ce06d909ea4778bb77bd4108351ff1457
+Webapp-Fassung, gebaut aus Weltwissen.html mit SHA-256 708647de122f58a7780c3ef015032b899fc17bb294c129ae06c4c824cd291a57
 
-f41a0952d697e00d2c29d7d006a123a136f1e8b8119cf0700490190bdcf39794  index.html
-267c2467ab86f9f38416f9e415fa819869f6546df499934f9c6b8194448a248a  sw.js
+45b4236ebbf9d9ea96556132bc31a03c040a6cced7d7e999cf7611878a3e453e  index.html
+d88f40aed4a5bdf8812216da55525f64d51cc6b2e7fc0c0b65f2745e57828740  sw.js
 b1d14fcdf137ae3539180a5dae9f28066795f3dd112eb3e752a3ab0c63ffaefb  manifest.webmanifest
 ef3457760c5a71d79d99fdc7f6a30b863e0670df39aaf9200f82fac7a7321682  symbol-180.png
 5ef88e8966cac1759004d90d596fe483156255ebbd1fd6e15995f722f28df2b9  symbol-512.png
+8515fb12d5451bafaab8f71b474dd8933a3735258231999cd5594d7219d0b0b3  aktuelles.json
 
 Content-Security-Policy:
 default-src 'none';
 script-src 'unsafe-inline';
 style-src 'unsafe-inline';
 img-src data: blob: 'self';
-connect-src 'none';
+connect-src 'self';
 worker-src 'self';
 manifest-src 'self'
