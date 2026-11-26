@@ -1,0 +1,16 @@
+Webapp-Fassung, gebaut aus Weltwissen.html mit SHA-256 f9a25e27849d83d9d5995ca5c12a5f16d944d375be4cb868d90ab163c3789415
+
+ca0efc0fb466d5e23e3b4a1f656d068fdc33c8a17b982db5fc6cdbb8c972a6ba  index.html
+42e83c11ffbe149f26207c4e240ce451875268c28603489a6eb150ba9bb49f84  sw.js
+b1d14fcdf137ae3539180a5dae9f28066795f3dd112eb3e752a3ab0c63ffaefb  manifest.webmanifest
+ef3457760c5a71d79d99fdc7f6a30b863e0670df39aaf9200f82fac7a7321682  symbol-180.png
+5ef88e8966cac1759004d90d596fe483156255ebbd1fd6e15995f722f28df2b9  symbol-512.png
+
+Content-Security-Policy:
+default-src 'none';
+script-src 'unsafe-inline';
+style-src 'unsafe-inline';
+img-src data: blob: 'self';
+connect-src 'none';
+worker-src 'self';
+manifest-src 'self'
