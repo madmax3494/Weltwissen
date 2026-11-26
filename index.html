@@ -144,7 +144,7 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
 // Weltwissen – Spielregeln ohne Oberfläche. Läuft im Browser (window.WW) und in Node (Tests).
 (function (root) {
   'use strict';
-  const VERSION = '1.0';
+  const VERSION = '1.1';
   const KATS = [['ge', 'Geschichte'], ['ek', 'Erdkunde'], ['nw', 'Naturwissenschaft'], ['te', 'Technik'], ['sp', 'Sport'], ['mu', 'Musik'],
     ['fi', 'Film & Fernsehen'], ['ku', 'Kunst & Literatur'], ['sr', 'Sprache'], ['es', 'Essen & Trinken'], ['ti', 'Tiere & Natur'], ['de', 'Deutschland']];
   const KATNAME = {}; KATS.forEach(k => { KATNAME[k[0]] = k[1]; });
@@ -153,12 +153,19 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
   const LAGER = [5, 10];
   const ZEIT = 20, ZEIT_JOKER = 15, PUNKTE = 100, BONUS = 50;
   const STUFEN10 = [1, 1, 1, 1, 2, 2, 2, 2, 3, 3];
+  // Karriere in der Redaktion: je Rang drei Aufträge (10 Fragen aus einem Ressort) und eine Beförderungsprüfung (12 Fragen, gemischt)
+  const RAENGE = ['Volontär', 'Lokalreporter', 'Reporter', 'Redakteur', 'Ressortleiter', 'Chef vom Dienst', 'Stellvertretender Chefredakteur', 'Chefredakteur'];
+  const mix = (a, b, c) => Array(a).fill(1).concat(Array(b).fill(2), Array(c).fill(3));
+  const KSTUFEN = [   // a = Auftrag, p = Prüfung, za/zp = nötige richtige Antworten
+    { a: mix(10, 0, 0), za: 6, p: mix(12, 0, 0), zp: 8 }, { a: mix(7, 3, 0), za: 7, p: mix(8, 4, 0), zp: 8 }, { a: mix(5, 5, 0), za: 7, p: mix(6, 6, 0), zp: 8 },
+    { a: mix(3, 6, 1), za: 7, p: mix(4, 6, 2), zp: 9 }, { a: mix(2, 5, 3), za: 7, p: mix(2, 6, 4), zp: 9 }, { a: mix(0, 6, 4), za: 7, p: mix(0, 7, 5), zp: 9 },
+    { a: mix(0, 4, 6), za: 8, p: mix(0, 5, 7), zp: 10 }];
 
   let F = [], S = null;
 
   function leer() {
     return { v: 1, gesehen: {}, falsch: [], kat: {}, tage: {}, tq: {}, best: { runde: 0, gipfel: 0, serie: 0, training: 0 },
-      zeit: { summe: 0, n: 0, min: null }, spiele: 0, einst: { zeit: true } };
+      zeit: { summe: 0, n: 0, min: null }, spiele: 0, einst: { zeit: true }, karriere: { rang: 0, erledigt: [false, false, false] } };
   }
   // Zufall mit Startwert (mulberry32), damit Tagesquiz und Tests wiederholbar sind
   function rng(seed) {
@@ -180,6 +187,7 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
       for (const k of Object.keys(S)) if (stand[k] !== undefined && stand[k] !== null) S[k] = stand[k];
       S.best = Object.assign(leer().best, S.best); S.einst = Object.assign(leer().einst, S.einst); S.zeit = Object.assign(leer().zeit, S.zeit);
       if (!Array.isArray(S.falsch)) S.falsch = [];
+      const K = S.karriere; if (!K || typeof K.rang !== 'number' || !Array.isArray(K.erledigt) || K.erledigt.length !== 3) S.karriere = leer().karriere;
     }
     return S;
   }
@@ -204,20 +212,23 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
     opt = opt || {};
     const tag = modus === 'tag';
     if (tag && S.tq[opt.datum]) return null;
+    const kar = modus === 'karriere', pruef = kar && opt.auftrag === 'pruefung', K = S.karriere;
+    if (kar && (K.rang >= KSTUFEN.length || (pruef ? !K.erledigt.every(Boolean) : ![0, 1, 2].includes(opt.auftrag)))) return null;
+    const festKat = modus === 'training' ? opt.kat : kar && !pruef ? auftragKat(K.rang, opt.auftrag) : '';
     const r = rng(tag ? hash('weltwissen-' + opt.datum) : (opt.seed !== undefined ? opt.seed : Math.floor(Math.random() * 4294967296)));
     const benutzt = {}, liste = [];
     const kats = mischen(KATS.map(k => k[0]), r);
-    const stufen = modus === 'gipfel' ? [1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3] : modus === 'training' && opt.stufe ? Array(10).fill(opt.stufe) : STUFEN10;
+    const stufen = kar ? (pruef ? KSTUFEN[K.rang].p : KSTUFEN[K.rang].a) : modus === 'gipfel' ? [1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3] : modus === 'training' && opt.stufe ? Array(10).fill(opt.stufe) : STUFEN10;
     // In der Schnellen Runde kommen bis zu zwei früher falsch beantwortete Fragen wieder
     const alt = modus === 'runde' ? mischen(S.falsch.filter(id => F.some(q => q.id === id)), r).slice(0, 2).map(id => F.find(q => q.id === id)) : [];
     stufen.forEach((st, i) => {
       let q = null;
       const a = alt.findIndex(x => x && x.s === st && !benutzt[x.id]);
       if (a >= 0) { q = alt[a]; alt[a] = null; benutzt[q.id] = 1; }
-      if (!q) q = zieh(r, st, modus === 'training' ? opt.kat : kats[i % kats.length], benutzt, tag);
+      if (!q) q = zieh(r, st, festKat || kats[i % kats.length], benutzt, tag);
       if (q) liste.push(eintrag(q, r));
     });
-    return { modus: modus, liste: liste, i: 0, punkte: 0, richtig: 0, ende: false, datum: opt.datum || '', kat: opt.kat || '', stufe: opt.stufe || 0,
+    return { modus: modus, liste: liste, i: 0, punkte: 0, richtig: 0, ende: false, datum: opt.datum || '', kat: opt.kat || festKat, stufe: opt.stufe || 0, auftrag: kar ? opt.auftrag : null, ziel: kar ? (pruef ? KSTUFEN[K.rang].zp : KSTUFEN[K.rang].za) : 0, bestanden: false, befoerdert: false,
       joker: modus === 'gipfel' ? { halb: true, zeit: true, tausch: true } : {}, weg: [], extra: 0, benutzt: benutzt, r: r, verlauf: [], rekord: false, gipfel: false, abgestiegen: false };
   }
   function aktuelle(R) {
@@ -255,6 +266,11 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
     if (R.modus === 'gipfel') { R.gipfel = R.punkte === HOEHEN[HOEHEN.length - 1]; if (R.punkte > B.gipfel) { R.rekord = B.gipfel > 0 || R.gipfel; B.gipfel = R.punkte; } }
     else if (R.modus === 'runde') { if (R.punkte > B.runde) { R.rekord = B.runde > 0; B.runde = R.punkte; } }
     else if (R.modus === 'training') { if (R.punkte > B.training) B.training = R.punkte; }
+    else if (R.modus === 'karriere') {
+      const K = S.karriere; R.bestanden = R.richtig >= R.ziel;
+      if (R.bestanden && R.auftrag === 'pruefung') { K.rang++; K.erledigt = [false, false, false]; R.befoerdert = true; }
+      else if (R.bestanden) K.erledigt[R.auftrag] = true;
+    }
     else if (R.modus === 'tag') { const s = serie(datum); if (s > B.serie) { R.rekord = B.serie > 1; B.serie = s; } }
     const tage = Object.keys(S.tage).sort(); while (tage.length > 120) delete S.tage[tage.shift()];
   }
@@ -268,6 +284,14 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
     else if (typ === 'tausch') { const q = zieh(R.r, e.q.s, '', R.benutzt, false); if (!q) return false; R.liste[R.i] = eintrag(q, R.r); R.weg = []; }
     else return false;
     R.joker[typ] = false; return true;
+  }
+  // Ressort eines Auftrags: die zwölf Gebiete der Reihe nach, sodass jedes in der Karriere mehrmals drankommt
+  function auftragKat(rang, nr) { return KATS[(rang * 3 + nr) % KATS.length][0]; }
+  function karriere() {
+    const K = S.karriere, fertig = K.rang >= KSTUFEN.length, D = fertig ? null : KSTUFEN[K.rang];
+    return { rang: K.rang, name: RAENGE[K.rang], naechster: fertig ? '' : RAENGE[K.rang + 1], fertig: fertig, raenge: RAENGE,
+      auftraege: fertig ? [] : [0, 1, 2].map(i => ({ nr: i, kat: auftragKat(K.rang, i), name: KATNAME[auftragKat(K.rang, i)], ziel: D.za, n: D.a.length, erledigt: !!K.erledigt[i] })),
+      pruefung: fertig ? null : { offen: K.erledigt.every(Boolean), ziel: D.zp, n: D.p.length } };
   }
   // Tage in Folge mit Tagesquiz, endend heute oder gestern
   function serie(datum) {
@@ -288,7 +312,7 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
   }
   function poolZahl(kat, stufe) { return F.filter(q => (!kat || katVon(q) === kat) && (!stufe || q.s === stufe)).length; }
 
-  const WW = { VERSION, KATS, HOEHEN, LAGER, ZEIT, init, laden, zustand, exportieren, neueRunde, aktuelle, antwort, aufhoeren, joker, serie, statistik, sicher, poolZahl, tagPlus };
+  const WW = { VERSION, KATS, HOEHEN, LAGER, ZEIT, init, laden, zustand, exportieren, neueRunde, aktuelle, antwort, aufhoeren, joker, serie, statistik, sicher, poolZahl, tagPlus, karriere, RAENGE };
   if (typeof module !== 'undefined' && module.exports) module.exports = WW; else root.WW = WW;
 })(typeof window !== 'undefined' ? window : this);
 
@@ -298,7 +322,7 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
 (function () {
   'use strict';
   const KEY = 'weltwissen-v1';
-  const MODUS = { runde: 'Schnelle Runde', gipfel: 'Gipfelsturm', tag: 'Tagesquiz', training: 'Themen-Training' };
+  const MODUS = { runde: 'Schnelle Runde', gipfel: 'Gipfelsturm', tag: 'Tagesquiz', training: 'Themen-Training', karriere: 'Karriere' };
   const STUFE = ['gemischt', 'leicht', 'mittel', 'schwer'];
   const box = document.getElementById('seite'), leiste = document.getElementById('leiste');
   const zahl = n => Number(n).toLocaleString('de-DE');
@@ -327,10 +351,10 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
   });
   function zeig() {
     box.textContent = '';
-    ({ start: zeigStart, training: zeigTraining, frage: zeigFrage, ergebnis: zeigErgebnis, statistik: zeigStatistik, mehr: zeigMehr }[seite] || zeigStart)();
+    ({ start: zeigStart, training: zeigTraining, karriere: zeigKarriere, frage: zeigFrage, ergebnis: zeigErgebnis, statistik: zeigStatistik, mehr: zeigMehr }[seite] || zeigStart)();
     leiste.textContent = ''; leiste.className = seite === 'frage' ? 'zu' : '';
     [['start', 'Spielen'], ['statistik', 'Statistik'], ['mehr', 'Mehr']].forEach(function (x) {
-      const an = x[0] === seite || (x[0] === 'start' && (seite === 'training' || seite === 'ergebnis'));
+      const an = x[0] === seite || (x[0] === 'start' && (seite === 'training' || seite === 'karriere' || seite === 'ergebnis'));
       leiste.appendChild(knopf(an ? 'an' : '', x[1], function () { geh(x[0], true); }));
     });
     window.scrollTo(0, 0);
@@ -359,6 +383,8 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
     const tq = st.heute;
     liste.appendChild(reihe('Tagesquiz', tq ? 'Heute: ' + tq.r + ' von ' + tq.n + ' · ' + zahl(tq.p) + ' Punkte' : 'Heute noch offen', tq ? null : function () { start('tag'); }));
     liste.appendChild(reihe('Gipfelsturm', st.best.gipfel ? 'Bestwert ' + zahl(st.best.gipfel) + ' m' : '15 Etappen bis auf 8.848 m', function () { start('gipfel'); }));
+    const K = WW.karriere(), erl = K.auftraege.filter(function (a) { return a.erledigt; }).length;
+    liste.appendChild(reihe('Karriere', K.fertig ? 'Chefredakteur' : K.name + ' · ' + (K.pruefung.offen ? 'Prüfung steht an' : erl + ' von 3 Aufträgen'), function () { geh('karriere'); }));
     liste.appendChild(reihe('Themen-Training', 'Gebiet und Stufe wählen', function () { geh('training'); }));
     box.appendChild(liste);
     box.appendChild(el('div', 'fuss', zahl(st.gesehen) + ' von ' + zahl(st.pool) + ' Fragen entdeckt'));
@@ -384,13 +410,40 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
     box.appendChild(liste);
   }
 
+  // ---------- Karriere ----------
+  function zeigKarriere() {
+    const K = WW.karriere();
+    kopf(true);
+    box.appendChild(el('div', 'rubrik', 'Karriere in der Redaktion'));
+    box.appendChild(el('h2', '', K.fertig ? 'Du bist Chefredakteur' : 'Du bist ' + K.name));
+    if (K.fertig) box.appendChild(el('p', '', 'Höher geht es nicht: Du hast alle sieben Prüfungen bestanden und leitest jetzt das Blatt.'));
+    else {
+      box.appendChild(el('p', 'klein', 'Nächste Stufe: ' + K.naechster + '. Erledige drei Aufträge, dann wartet die Beförderungsprüfung.'));
+      const l = el('div', 'liste'); l.style.marginTop = '12px';
+      K.auftraege.forEach(function (a) {
+        const z = reihe('Ressort ' + a.name, a.erledigt ? 'erfüllt' : a.ziel + ' von ' + a.n + ' richtig', a.erledigt ? null : function () { start('karriere', { auftrag: a.nr }); });
+        z.firstChild.style.fontSize = '18px'; l.appendChild(z);
+      });
+      const pz = reihe('Beförderungsprüfung', K.pruefung.offen ? K.pruefung.ziel + ' von ' + K.pruefung.n + ' richtig' : 'nach den drei Aufträgen', K.pruefung.offen ? function () { start('karriere', { auftrag: 'pruefung' }); } : null);
+      pz.firstChild.style.fontSize = '18px'; if (!K.pruefung.offen) pz.lastChild.textContent = '';
+      l.appendChild(pz); box.appendChild(l);
+    }
+    box.appendChild(el('div', 'rubrik', 'Laufbahn'));
+    const leiter = el('div', 'leiter'); leiter.style.marginTop = '0';
+    for (let i = K.raenge.length - 1; i >= 0; i--) {
+      const z = el('div', i === K.rang ? 'hier' : i < K.rang ? 'lager' : '');
+      dazu(z, el('span', '', K.raenge[i]), el('span', '', i < K.rang ? '✓' : i === K.rang ? 'jetzt' : '')); leiter.appendChild(z);
+    }
+    box.appendChild(leiter);
+  }
+
   // ---------- Frage ----------
   function stopp() { if (uhr) { clearInterval(uhr); uhr = null; } offen = false; }
   function zeigFrage() {
     const A = R && WW.aktuelle(R); if (!A) { seite = 'start'; return zeigStart(); }
     const gipfel = R.modus === 'gipfel';
     const kz = el('div', 'kopfzeile');
-    dazu(kz, knopf('x', '✕', abbrechen), el('span', '', MODUS[R.modus]), el('span', 'wo', gipfel ? 'Etappe ' + A.nr + ' · ' + zahl(A.hoehe) + ' m' : 'Frage ' + A.nr + ' von ' + A.von));
+    dazu(kz, knopf('x', '✕', abbrechen), el('span', '', R.modus === 'karriere' ? (R.auftrag === 'pruefung' ? 'Prüfung' : 'Auftrag') : MODUS[R.modus]), el('span', 'wo', gipfel ? 'Etappe ' + A.nr + ' · ' + zahl(A.hoehe) + ' m' : 'Frage ' + A.nr + ' von ' + A.von + (R.ziel ? ' · Ziel ' + R.ziel : '')));
     kz.firstChild.setAttribute('aria-label', 'Abbrechen');
     box.appendChild(kz);
     let balken = null, spur = null;
@@ -459,12 +512,18 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
 
   // ---------- Ergebnis ----------
   function zeigErgebnis() {
-    const L = letzte, gipfel = L.modus === 'gipfel';
+    const L = letzte, gipfel = L.modus === 'gipfel', kar = L.modus === 'karriere';
     kopf(true);
     box.appendChild(el('div', 'rubrik', 'Ergebnis · ' + MODUS[L.modus]));
     if (gipfel) {
       box.appendChild(el('div', 'schlagzeile', L.gipfel ? 'Gipfel erreicht!' : L.abgestiegen ? 'Sicher abgestiegen' : 'Abgestürzt'));
       box.appendChild(el('div', 'unterzeile', L.gipfel ? 'Alle 15 Etappen geschafft: 8.848 m.' : L.abgestiegen ? 'Du nimmst ' + zahl(L.punkte) + ' m mit.' : L.punkte ? 'Das Lager hält: ' + zahl(L.punkte) + ' m bleiben.' : 'Vor dem ersten Lager bleibt nichts.'));
+    } else if (kar) {
+      const pruef = L.auftrag === 'pruefung';
+      box.appendChild(el('div', 'schlagzeile', L.befoerdert ? 'Befördert!' : L.bestanden ? 'Auftrag erfüllt' : pruef ? 'Prüfung nicht bestanden' : 'Auftrag verfehlt'));
+      box.appendChild(el('div', 'unterzeile', L.richtig + ' von ' + L.liste.length + ' richtig, nötig waren ' + L.ziel + '.'));
+      if (L.befoerdert) box.appendChild(el('p', '', 'Du bist jetzt ' + WW.karriere().name + '.'));
+      else if (!L.bestanden) box.appendChild(el('p', 'klein', 'Du kannst es beliebig oft wieder versuchen.'));
     } else {
       box.appendChild(el('div', 'schlagzeile', L.richtig + ' von ' + L.liste.length + ' richtig'));
       box.appendChild(el('div', 'unterzeile', zahl(L.punkte) + ' Punkte'));
@@ -483,9 +542,14 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
       }
       box.appendChild(leiter);
     }
-    if (L.modus !== 'tag') box.appendChild(knopf('gross', 'Noch einmal', function () { start(L.modus, { kat: L.kat, stufe: L.stufe }); }));
-    box.appendChild(knopf(L.modus === 'tag' ? 'gross' : 'zweit', 'Zur Titelseite', function () { geh('start', true); }));
-    if (L.rekord || L.gipfel) { konfetti(); L.rekord = false; L.gipfel = L.gipfel && false; }
+    if (kar) {
+      box.appendChild(knopf('gross', 'Zur Karriere', function () { geh('karriere', true); }));
+      if (!L.bestanden) box.appendChild(knopf('zweit', 'Noch einmal', function () { start('karriere', { auftrag: L.auftrag }); }));
+    } else {
+      if (L.modus !== 'tag') box.appendChild(knopf('gross', 'Noch einmal', function () { start(L.modus, { kat: L.kat, stufe: L.stufe }); }));
+      box.appendChild(knopf(L.modus === 'tag' ? 'gross' : 'zweit', 'Zur Titelseite', function () { geh('start', true); }));
+    }
+    if (L.rekord || L.gipfel || L.befoerdert) { konfetti(); L.rekord = false; L.gipfel = L.gipfel && false; L.befoerdert = false; }
   }
   function konfetti() {
     const k = el('div', 'konfetti'), farben = ['#1c2733', '#a3271f', '#c9973a', '#ffffff', '#7a6657'];
@@ -534,7 +598,7 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
 
     box.appendChild(el('div', 'rubrik', 'Bestwerte'));
     const l = el('div', 'liste'); l.style.marginTop = '0';
-    [['Schnelle Runde', st.best.runde ? zahl(st.best.runde) + ' Punkte' : '–'], ['Gipfelsturm', st.best.gipfel ? zahl(st.best.gipfel) + ' m' : '–'], ['Längste Serie', st.best.serie ? st.best.serie + (st.best.serie === 1 ? ' Tag' : ' Tage') : '–'],
+    [['Rang in der Redaktion', WW.karriere().name], ['Schnelle Runde', st.best.runde ? zahl(st.best.runde) + ' Punkte' : '–'], ['Gipfelsturm', st.best.gipfel ? zahl(st.best.gipfel) + ' m' : '–'], ['Längste Serie', st.best.serie ? st.best.serie + (st.best.serie === 1 ? ' Tag' : ' Tage') : '–'],
       ['Schnellste richtige Antwort', st.zeit.min === null ? '–' : st.zeit.min.toLocaleString('de-DE') + ' s'], ['Im Schnitt bis zur Antwort', st.zeit.schnitt === null ? '–' : st.zeit.schnitt.toLocaleString('de-DE') + ' s'],
       ['Fragen entdeckt', zahl(st.gesehen) + ' von ' + zahl(st.pool)]].forEach(function (x) {
       const r = el('div', 'zeile'); const n = el('b', '', x[0]); n.style.fontSize = '17px'; n.style.fontWeight = '400'; const w = el('span', '', x[1]); w.style.color = 'var(--tinte)'; w.style.fontSize = '17px'; dazu(r, n, w); l.appendChild(r);
@@ -557,6 +621,7 @@ const FRAGEN = [{"id":"ge0001","s":1,"f":"Wie hießen die Herrscher im alten Äg
     box.appendChild(el('div', 'rubrik', 'So wird gespielt'));
     [['Schnelle Runde', '10 Fragen aus allen Gebieten, erst leicht, am Ende schwer.'], ['Tagesquiz', 'Jeden Tag dieselben 10 Fragen, ein Versuch. Wer täglich spielt, baut eine Serie auf.'],
       ['Gipfelsturm', '15 Etappen bis auf 8.848 m. Eine falsche Antwort wirft dich auf das letzte Lager zurück (2.000 m und 5.300 m). Drei Joker, und du kannst jederzeit absteigen.'],
+      ['Karriere', 'Vom Volontär zum Chefredakteur in sieben Stufen. Je Stufe drei Aufträge aus verschiedenen Ressorts und eine Beförderungsprüfung; die Fragen werden mit jedem Rang schwerer.'],
       ['Themen-Training', 'Ein Gebiet und eine Stufe wählen, 10 Fragen.']].forEach(function (x) { const p = el('p'); dazu(p, el('b', '', x[0] + '. '), document.createTextNode(x[1])); box.appendChild(p); });
 
     box.appendChild(el('div', 'rubrik', 'Über diese Ausgabe'));
